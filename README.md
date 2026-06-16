@@ -14,7 +14,7 @@ Useful when you want to shut the lid and walk away but keep things running — l
 
 macOS ties the **screen lock** to the **sleep** event: closing the lid locks your Mac *because* it sleeps. If you only disable lid-close sleep (`pmset disablesleep 1`), your Mac stays awake — but it **never locks**, because nothing triggers the lock. That's a security hole.
 
-`stay alive` fixes that: it disables lid-close sleep **and** runs a tiny background watcher that locks the screen the instant the lid shuts. So you get "awake but locked," which macOS has no built-in switch for. `go sleep` turns both back off.
+`stay alive` fixes that: it disables lid-close sleep **and** runs a tiny background watcher that locks the screen the instant the lid shuts. So you get "awake but locked," which macOS has no built-in switch for. `go sleep` turns it back off. The watcher is a **launchd agent**, so macOS keeps it supervised and restarts it across crashes, logout, and reboot — it can't silently die and leave you exposed.
 
 > Locking ≠ sleeping. Locking leaves every process running at full speed; only *sleep* freezes them. So `stay alive` truly keeps your work going.
 
@@ -35,8 +35,9 @@ source ~/.zshrc        # or just open a new terminal
 
 The installer:
 1. drops a lid watcher in `~/.config/stayalive/`,
-2. adds the `stay` / `go` functions to your `~/.zshrc`,
-3. sets your screen lock to **immediate** (asks for your login password — required so the lock actually fires on lid close).
+2. installs a launchd agent (`~/Library/LaunchAgents/com.stayalive.lidwatch.plist`) that keeps the watcher running and restarts it after reboot/logout,
+3. adds the `stay` / `go` functions to your `~/.zshrc`,
+4. sets your screen lock to **immediate** (asks for your login password — required so the lock actually fires on lid close).
 
 Re-running the installer is safe — it replaces its own block cleanly.
 
@@ -81,7 +82,7 @@ while true; do date '+%H:%M:%S'; sleep 2; done | tee /tmp/beat.log
 source ~/.zshrc
 ```
 
-Removes the watcher, the shell functions, and restores normal sleep. (It does not change your screen-lock-timing back; set that in **System Settings → Lock Screen** if you want.)
+Removes the watcher, the launchd agent, the shell functions, and restores normal sleep. (It does not change your screen-lock-timing back; set that in **System Settings → Lock Screen** if you want.)
 
 ## Troubleshooting
 
@@ -104,8 +105,8 @@ open -a /System/Library/CoreServices/ScreenSaverEngine.app
 
 ## How it works (under the hood)
 
-- `stay alive` → `sudo pmset -a disablesleep 1` (no lid-close sleep) + launches `lidwatch.sh`.
-- `lidwatch.sh` polls `ioreg -r -k AppleClamshellState` once a second; when the lid closes it runs `pmset displaysleepnow`, which — with screen lock set to immediate — locks the screen without sleeping.
-- `go sleep` → kills the watcher + `sudo pmset -a disablesleep 0` (normal sleep restored).
+- `lidwatch.sh` runs as a launchd agent (`RunAtLoad` + `KeepAlive`), so it's always running and macOS respawns it if it ever dies. It polls `ioreg -r -k AppleClamshellState` once a second; when the lid closes **and** sleep is disabled, it runs `pmset displaysleepnow`, which — with screen lock set to immediate — locks the screen without sleeping. In normal mode it sees sleep is enabled and does nothing.
+- `stay alive` → `sudo pmset -a disablesleep 1` (no lid-close sleep). That's the only thing it flips; the watcher is already up and starts acting on lid close.
+- `go sleep` → `sudo pmset -a disablesleep 0` (normal sleep restored). The watcher stays running but goes idle.
 
-All it touches: a folder at `~/.config/stayalive/` and one marked block in your shell rc file.
+All it touches: a folder at `~/.config/stayalive/`, a launchd agent in `~/Library/LaunchAgents/`, and one marked block in your shell rc file.
