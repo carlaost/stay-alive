@@ -3,9 +3,9 @@
 # stay-alive installer
 # ---------------------
 # Adds two terminal commands to your shell:
-#   stay alive  -> closing the lid keeps everything running, but LOCKS the screen
-#   go sleep    -> Apple default (closing the lid sleeps + locks)
-#   stay status -> show current mode
+#   stay alive  -> lid close keeps everything running, LOCKS the screen, and opens SSH (port 22)
+#   go sleep    -> Apple default (lid close sleeps + locks) and closes SSH again
+#   stay status -> show current mode (incl. SSH state)
 #
 # The lid watcher runs as a launchd agent, so macOS keeps it supervised and
 # restarts it across crashes, logout, and reboot — it never silently dies.
@@ -149,13 +149,27 @@ $START_MARK
 # The lid watcher runs as a launchd agent ($AGENT_LABEL), always supervised by
 # macOS. It only acts while sleep is disabled, so these commands just flip that.
 _SA_AGENT="$AGENT_LABEL"
-_sa_on()  { sudo pmset -a disablesleep 1 && echo "☕️  ${ON_CMD} — lid close keeps everything running, locks the screen."; }
-_sa_off() { sudo pmset -a disablesleep 0 && echo "😴  ${OFF_CMD} — Apple default restored (lid close = sleep + lock)."; }
+_sa_ssh_on()    { sudo systemsetup -setremotelogin on >/dev/null 2>&1; }
+_sa_ssh_off()   { sudo systemsetup -setremotelogin off >/dev/null 2>&1; }
+_sa_ssh_is_on() { [[ "\$(sudo systemsetup -getremotelogin 2>/dev/null)" == *"On"* ]]; }
+_sa_on()  {
+  sudo pmset -a disablesleep 1 || return 1
+  if _sa_ssh_on; then
+    echo "☕️  ${ON_CMD} — lid close keeps everything running, locks the screen, SSH (port 22) open."
+  else
+    echo "☕️  ${ON_CMD} — staying awake, but ⚠️ could NOT open SSH (port 22). Check Full Disk Access for your terminal, or run: sudo systemsetup -setremotelogin on"
+  fi
+}
+_sa_off() {
+  sudo pmset -a disablesleep 0 || return 1
+  _sa_ssh_off
+  echo "😴  ${OFF_CMD} — Apple default restored (lid close = sleep + lock), SSH (port 22) closed."
+}
 _sa_status() {
   if [[ "\$(pmset -g | awk '/SleepDisabled/{print \$2}')" == "1" ]]; then
-    echo "☕️  awake-on-close ON — watcher: \$(launchctl print "gui/\$(id -u)/\$_SA_AGENT" >/dev/null 2>&1 && echo running || echo NOT running)"
+    echo "☕️  awake-on-close ON — watcher: \$(launchctl print "gui/\$(id -u)/\$_SA_AGENT" >/dev/null 2>&1 && echo running || echo NOT running). SSH: \$(_sa_ssh_is_on && echo 'OPEN (port 22)' || echo closed)"
   else
-    echo "😴  default mode (lid close = sleep + lock)."
+    echo "😴  default mode (lid close = sleep + lock). SSH: \$(_sa_ssh_is_on && echo 'OPEN (port 22)' || echo closed)"
   fi
 }
 EOF
@@ -209,8 +223,8 @@ fi
 
 echo
 echo "✅ Installed to $RC_FILE"
-echo "   ${ON_CMD}    -> stay awake on lid close + lock screen"
-echo "   ${OFF_CMD}    -> Apple default (sleep + lock on lid close)"
+echo "   ${ON_CMD}    -> stay awake on lid close + lock screen + open SSH (port 22)"
+echo "   ${OFF_CMD}    -> Apple default (sleep + lock on lid close) + close SSH"
 echo "   ${ON_VERB} status -> show current mode"
 echo "   watcher       -> launchd agent '$AGENT_LABEL' (auto-starts at login)"
 echo

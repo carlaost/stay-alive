@@ -3,12 +3,12 @@
 Two terminal commands for macOS that let you **close your laptop lid without sleeping it** — while still locking the screen like normal.
 
 ```
-stay alive   # close the lid → everything keeps running, screen locks
-go sleep     # back to Apple default → close the lid → sleep + lock
-stay status  # show which mode you're in
+stay alive   # close the lid → everything keeps running, screen locks, SSH (port 22) opens
+go sleep     # back to Apple default → close the lid → sleep + lock, SSH closes
+stay status  # show which mode you're in (incl. SSH state)
 ```
 
-Useful when you want to shut the lid and walk away but keep things running — long jobs, downloads, or SSH-ing back into the machine from your phone.
+Useful when you want to shut the lid and walk away but keep things running — long jobs, downloads, or SSH-ing back into the machine from your phone. `stay alive` also turns on **Remote Login (SSH / port 22)** so the machine is actually reachable, and `go sleep` turns it back off — port 22 stays open from `stay alive` until the next `go sleep`.
 
 ## Why this isn't just one setting
 
@@ -106,7 +106,9 @@ open -a /System/Library/CoreServices/ScreenSaverEngine.app
 ## How it works (under the hood)
 
 - `lidwatch.sh` runs as a launchd agent (`RunAtLoad` + `KeepAlive`), so it's always running and macOS respawns it if it ever dies. It polls `ioreg -r -k AppleClamshellState` once a second; when the lid closes **and** sleep is disabled, it runs `pmset displaysleepnow`, which — with screen lock set to immediate — locks the screen without sleeping. In normal mode it sees sleep is enabled and does nothing.
-- `stay alive` → `sudo pmset -a disablesleep 1` (no lid-close sleep). That's the only thing it flips; the watcher is already up and starts acting on lid close.
-- `go sleep` → `sudo pmset -a disablesleep 0` (normal sleep restored). The watcher stays running but goes idle.
+- `stay alive` → `sudo pmset -a disablesleep 1` (no lid-close sleep) **and** `sudo systemsetup -setremotelogin on` (opens SSH / port 22). The watcher is already up and starts acting on lid close.
+- `go sleep` → `sudo pmset -a disablesleep 0` (normal sleep restored) **and** `sudo systemsetup -setremotelogin off` (closes SSH / port 22). The watcher stays running but goes idle.
+
+> Opening SSH may require your terminal to have **Full Disk Access** (System Settings → Privacy & Security). If `stay alive` reports it couldn't open port 22, grant that and retry, or run `sudo systemsetup -setremotelogin on` once manually.
 
 All it touches: a folder at `~/.config/stayalive/`, a launchd agent in `~/Library/LaunchAgents/`, and one marked block in your shell rc file.
